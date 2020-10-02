@@ -1,6 +1,5 @@
 import argparse
 import sqlite3
-from glob import glob
 from os.path import exists
 from types import SimpleNamespace
 
