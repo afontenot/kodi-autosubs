@@ -80,7 +80,7 @@ def set_subtrack(fpath, tracknum):
     if not fid:
         return
     # if a default stream is already set, ask for confirmation
-    cur.execute(f"select SubtitleStream from settings where idFile{fid}")
+    cur.execute(f"select SubtitleStream from settings where idFile={fid}")
     res = cur.fetchone()
     if res and res[0] != -1:
         if res[0] == tracknum:
