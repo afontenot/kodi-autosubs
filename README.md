@@ -24,7 +24,7 @@ If not:
 
 3. Get the default subtitle. Prioritizing external subtitles (which
 are assumed to be in the same location as the file, with '.srt' as
-the extensions), then internal forced subtitles, then internal 
+the extension), then internal forced subtitles, then internal 
 subtitles with the "default" flag set, then any other subtile tagged
 as English in the file.
 
