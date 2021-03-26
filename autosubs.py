@@ -134,7 +134,7 @@ def parseargs():
             action='store_true')
     parser.add_argument(
             '-f', '--fastmode',
-            help="""Skip files that have English as the first audio track in
+            help="""Skip files that have English as the default audio track in
             the Kodi database. Otherwise, the script will attempt to verify
             the language with mediainfo, set forced subs, and so on.""",
             action='store_true')
@@ -165,14 +165,11 @@ def parseargs():
 def should_skip_file(cur, fid, fastmode, updateonly):
     # fast mode: exit if track is English
     if fastmode:
-        cur.execute(f"select iStreamType,strAudioLanguage from streamdetails where idFile={fid}")
-        engtrack = False
-        for res in cur.fetchall():
-            if res[0] == 1:
-                if res[1] == "eng":
-                    engtrack = True
-                break
-        if engtrack:
+        audiostream = cur.execute(f"select AudioStream from settings where idFile={fid}")
+        if not audiostream or audiostream == -1:
+            audiostream = 0
+        cur.execute(f"select strAudioLanguage from streamdetails where idFile={fid} and iStreamType=1")
+        if cur.fetchall()[audiostream] == "eng":
             return True
 
     # update mode: exit if subtitle settings already exist
