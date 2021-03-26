@@ -21,7 +21,7 @@ default_settings = {'Deinterlace': 1, 'ViewMode': 0, 'ZoomAmount': 1.0,
 # kind of naive, but works for my external subs
 # find filename.mkv.srt or filename.srt and return with tracknum given
 def get_external_subtrack(fpath, tracknum):
-    srt = {'title': "EXTERNAL", 'forced': "No", 'language': "en", 
+    srt = {'title': "EXTERNAL", 'forced': "No", 'language': "en",
            'default': "No", 'stream_identifier': tracknum, 'codec_id': "srt"}
     longpath = fpath + '.srt'
     shortpath = fpath[:-3] + 'srt'
@@ -121,53 +121,50 @@ def set_atrack(fpath, tracknum):
     print("db update complete\n")
 
 
-parser = argparse.ArgumentParser(
-        description="Set subtitle and audio track setings in Kodi automatically.",
-        epilog="""Leaving the three speed-up modes disabled is recommended 
-        on your first run of the script. You can enable them (or just use 
-        --automatic) after that, then leave them off for specific files.""")
-parser.add_argument(
-        '-u', '--updateonly', 
-        help="""Skip updating files that already have subtitles set, or 
-        updating audio tracks on files that have audio tracks set.""", 
-        action='store_true')
-parser.add_argument(
-        '-f', '--fastmode', 
-        help="""Skip files that have English as the first audio track in 
-        the Kodi database. Otherwise, the script will attempt to verify 
-        the language with mediainfo, set forced subs, and so on.""", 
-        action='store_true')
-parser.add_argument(
-        '-a', '--automatic', 
-        help="""Does the default option without prompting. Implies 
-        --updateonly and --fastmode for maximum safety. Designed for 
-        automated use, for interactive try --updateonly --fastmode.""", 
-        action='store_true')
-parser.add_argument(
-        'database', 
-        help="location of the Kodi database (e.g. MyVideos116.db)")
-parser.add_argument(
-        'files', 
-        help="""list of media files to scan (e.g. *.mkv); note that the
-        files need to be in Kodi's database already for this to work""", 
-        nargs='+')
+def parseargs():
+    parser = argparse.ArgumentParser(
+            description="Set subtitle and audio track setings in Kodi automatically.",
+            epilog="""Leaving the three speed-up modes disabled is recommended
+            on your first run of the script. You can enable them (or just use
+            --automatic) after that, then leave them off for specific files.""")
+    parser.add_argument(
+            '-u', '--updateonly',
+            help="""Skip updating files that already have subtitles set, or
+            updating audio tracks on files that have audio tracks set.""",
+            action='store_true')
+    parser.add_argument(
+            '-f', '--fastmode',
+            help="""Skip files that have English as the first audio track in
+            the Kodi database. Otherwise, the script will attempt to verify
+            the language with mediainfo, set forced subs, and so on.""",
+            action='store_true')
+    parser.add_argument(
+            '-a', '--automatic',
+            help="""Does the default option without prompting. Implies
+            --updateonly and --fastmode for maximum safety. Designed for
+            automated use, for interactive try --updateonly --fastmode.""",
+            action='store_true')
+    parser.add_argument(
+            'database',
+            help="location of the Kodi database (e.g. MyVideos116.db)")
+    parser.add_argument(
+            'files',
+            help="""list of media files to scan (e.g. *.mkv); note that the
+            files need to be in Kodi's database already for this to work""",
+            nargs='+')
 
-args = parser.parse_args()
-if args.automatic:
-    args.updateonly = True
-    args.fastmode = True
+    args = parser.parse_args()
+    if args.automatic:
+        args.updateonly = True
+        args.fastmode = True
 
-conn = sqlite3.connect(args.database)
-cur = conn.cursor()
+    return args
 
-for filecount, fpath in enumerate(args.files):
-    print(f"[{filecount+1}/{len(args.files)}]", fpath)
-    fid = getfid(fpath)
-    if not fid: 
-        continue
 
+# decide whether the file can be quickly skipped (e.g. because of fast mode)
+def should_skip_file(cur, fid, fastmode, updateonly):
     # fast mode: exit if track is English
-    if args.fastmode:
+    if fastmode:
         cur.execute(f"select iStreamType,strAudioLanguage from streamdetails where idFile={fid}")
         engtrack = False
         for res in cur.fetchall():
@@ -176,93 +173,116 @@ for filecount, fpath in enumerate(args.files):
                     engtrack = True
                 break
         if engtrack:
-            continue
-    
+            return True
+
     # update mode: exit if subtitle settings already exist
-    if args.updateonly:
-        cur.execute(f"select SubtitleStream,SubtitlesOn from settings where idFile = \"{fid}\"")
+    if updateonly:
+        cur.execute(f"select SubtitleStream,SubtitlesOn from settings where idFile={fid}")
         res = cur.fetchone()
         if res and res[0] != -1 and res[1] == 1:
+            return True
+
+    return False
+
+
+def main():
+    args = parseargs()
+
+    conn = sqlite3.connect(args.database)
+    cur = conn.cursor()
+
+    for filecount, fpath in enumerate(args.files):
+        print(f"[{filecount+1}/{len(args.files)}]", fpath)
+        fid = getfid(fpath)
+        if not fid:
             continue
-                    
-    # get data: mediainfo, track lists, and add any external subtitles, 
-    # then get defaults
-    info = MediaInfo.parse(fpath)
-    audiotracks = list(filter(lambda x: x.track_type == "Audio", info.tracks))
-    subtracks = list(filter(lambda x: x.track_type == "Text", info.tracks))
-    # request external subs with len(subtracks) 
-    # so that the sub will have the highest track number
-    # this appears to match Kodi's numbering, but it's kind of a hack
-    ext_subtrack = get_external_subtrack(fpath, len(subtracks))
-    if ext_subtrack:
-        subtracks.append(ext_subtrack)
 
-    default_atrack = get_default_audio_track(audiotracks)
-    default_strack = get_default_sub_track(subtracks)
+        # skip files if mode settings allow it
+        if should_skip_file(cur, fid, args.fastmode, args.updateonly):
+            continue
 
-    # first look at subtitles
-    # for films with un-tagged audio and some sub options
-    #  -> offer the user to set subtitle of choice, no defaults
-    # for films with a non-english default audio and some subtitle options
-    #  -> offer the user to set the detected default subtitle, or choose one
-    if subtracks and (not default_atrack.language or default_atrack.language != "en"):
-        if default_strack:
-            print("\nSetting sub track on", fpath, "\n")
-            for strack in subtracks:
-                if strack == default_strack and default_atrack.language:
-                    print(f"{strack.stream_identifier}: [{strack.language} | {strack.title} | {strack.codec_id} | forced: {strack.forced}]")
+        # get data: mediainfo, track lists, and add any external subtitles,
+        # then get defaults
+        info = MediaInfo.parse(fpath)
+        audiotracks = list(filter(lambda x: x.track_type == "Audio", info.tracks))
+        subtracks = list(filter(lambda x: x.track_type == "Text", info.tracks))
+
+        # request external subs with len(subtracks)
+        # so that the sub will have the highest track number
+        # this appears to match Kodi's numbering, but it's kind of a hack
+        ext_subtrack = get_external_subtrack(fpath, len(subtracks))
+        if ext_subtrack:
+            subtracks.append(ext_subtrack)
+
+        default_atrack = get_default_audio_track(audiotracks)
+        default_strack = get_default_sub_track(subtracks)
+
+        # first look at subtitles
+        # for films with un-tagged audio and some sub options
+        #  -> offer the user to set subtitle of choice, no defaults
+        # for films with a non-english default audio and some subtitle options
+        #  -> offer the user to set the detected default subtitle, or choose one
+        if subtracks and (not default_atrack.language or default_atrack.language != "en"):
+            if default_strack:
+                print("\nSetting sub track on", fpath, "\n")
+                for strack in subtracks:
+                    if strack == default_strack and default_atrack.language:
+                        print(f"{strack.stream_identifier}: [{strack.language} | {strack.title} | {strack.codec_id} | forced: {strack.forced}]")
+                    else:
+                        print(f"{strack.stream_identifier}:  {strack.language} | {strack.title} | {strack.codec_id} | forced: {strack.forced}")
+                inp = ""
+                if not args.automatic: # don't prompt if --automatic
+                    if default_atrack.language:
+                        inp = input("\nEnter track number to use, 'n' to cancel, enter to accept: ")
+                    else:
+                        inp = input("\nEnter track number to use, enter to cancel: ")
+                if default_atrack.language and inp == "":
+                    set_subtrack(fpath, int(default_strack.stream_identifier))
+                elif inp.isdecimal():
+                    inp = int(inp)
+                    if inp >= 0 and inp < len(subtracks):
+                        set_subtrack(fpath, inp)
                 else:
-                    print(f"{strack.stream_identifier}:  {strack.language} | {strack.title} | {strack.codec_id} | forced: {strack.forced}")
-            inp = ""
-            if not args.automatic: # don't prompt if --automatic
-                if default_atrack.language:
-                    inp = input("\nEnter track number to use, 'n' to cancel, enter to accept: ")
-                else:
-                    inp = input("\nEnter track number to use, enter to cancel: ")
-            if default_atrack.language and inp == "":
-                set_subtrack(fpath, int(default_strack.stream_identifier))
-            elif inp.isdecimal():
-                inp = int(inp)
-                if inp >= 0 and inp < len(subtracks):
-                    set_subtrack(fpath, inp)
+                    print("track refused, continuing...\n")
             else:
-                print("track refused, continuing...\n")
-        else:
-            print("Warning: no subtitles found for this file.")
-    elif default_strack and default_strack.forced == "Yes":
-        print("Note: film has a forced track")
-   
-    # now we look at audio streams
-    # update mode: exit if audiostream settings already exist
-    if args.updateonly:
-        cur.execute(f"select AudioStream from settings where idFile={fid}")
-        res = cur.fetchone()
-        if res and res[0] != -1:
-            continue
+                print("Warning: no subtitles found for this file.")
+        elif default_strack and default_strack.forced == "Yes":
+            print("Note: film has a forced track")
 
-    # make a list of any tracks that aren't default or commentary
-    extra_atracks = []
-    for atrack in audiotracks:
-        if atrack == default_atrack:
-            continue
-        if atrack.title and "commentary" in atrack.title.lower():
-            continue
-        extra_atracks.append(atrack)
+        # now we look at audio streams
+        # update mode: exit if audiostream settings already exist
+        if args.updateonly:
+            cur.execute(f"select AudioStream from settings where idFile={fid}")
+            res = cur.fetchone()
+            if res and res[0] != -1:
+                continue
 
-    # ask user whether they want to make one of these tracks the default
-    if extra_atracks:
-        print("\nSome additional tracks could not be positively identified as commentaries:\n")
-        for extra_atrack in extra_atracks:
-            print(f"{extra_atrack.stream_identifier}:  {extra_atrack.language} | {extra_atrack.title}")
-        inp = ""
-        if not args.automatic:
-            inp = input("\nEnter track number to use, enter to cancel: ")
-        if inp.isdecimal():
-            inp = int(inp)
-            if inp >= 0 and inp < len(audiotracks):
-                set_atrack(fpath, inp)
-        else:
-            print("Audio tracks rejected.\n")
-    conn.commit()
+        # make a list of any tracks that aren't default or commentary
+        extra_atracks = []
+        for atrack in audiotracks:
+            if atrack == default_atrack:
+                continue
+            if atrack.title and "commentary" in atrack.title.lower():
+                continue
+            extra_atracks.append(atrack)
 
-conn.close()
+        # ask user whether they want to make one of these tracks the default
+        if extra_atracks:
+            print("\nSome additional tracks could not be positively identified as commentaries:\n")
+            for extra_atrack in extra_atracks:
+                print(f"{extra_atrack.stream_identifier}:  {extra_atrack.language} | {extra_atrack.title}")
+            inp = ""
+            if not args.automatic:
+                inp = input("\nEnter track number to use, enter to cancel: ")
+            if inp.isdecimal():
+                inp = int(inp)
+                if inp >= 0 and inp < len(audiotracks):
+                    set_atrack(fpath, inp)
+            else:
+                print("Audio tracks rejected.\n")
+        conn.commit()
+
+    conn.close()
+
+if __name__ == "__main__":
+    main()
