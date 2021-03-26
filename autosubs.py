@@ -367,8 +367,8 @@ class AutosubsProgram:
 
             # check whether flags allow updating audio track for this file
             can_update_audio = self.args.audio
-            #if (self.args.updateonly and self.db.has_audio_settings):
-            #    can_update_audio = False
+            if (self.args.updateonly and self.db.has_audio_settings):
+                can_update_audio = False
 
             # then perform the update
             if can_update_audio:
