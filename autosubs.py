@@ -198,8 +198,8 @@ class AutosubsProgram:
         parser.add_argument(
                 '-a', '--audio',
                 help="""Enable the audio stream adjustment mode. Detects when
-                there might be multiple streams in your chosen language, so that
-                you can select one of them to play by default. Attempts to use
+                there might be an alternative audio stream that should be the 
+                default, so that you can easily switch to it. Attempts to use
                 heuristics to avoid commentary tracks. Intended to make it
                 easier to find and play original mono audio tracks, which are
                 sometimes included as secondary tracks in the file.""",
