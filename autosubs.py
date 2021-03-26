@@ -181,10 +181,10 @@ class AutosubsProgram:
         )
         parser.add_argument(
                 '-f', '--fastmode',
-                help="""Skip files that have English as the default audio track
-                in the Kodi database. Otherwise, the script will attempt to
-                verify the language with mediainfo, set forced subs, and so
-                on.""",
+                help="""Skip files that have your chosen language as the default 
+                audio track in the Kodi database. Otherwise, the script will 
+                attempt to verify the language with mediainfo, set forced subs, 
+                and so on.""",
                 action='store_true'
         )
         parser.add_argument(
