@@ -81,7 +81,7 @@ secondary track in the file.
 
 Lets you set the language that the program will compare audio tracks
 and subtitles to. You can use either the full name or a two or three
-digit code (like "en" or "eng" for English). This is used as described
+letter code (like "en" or "eng" for English). This is used as described
 above to decide whether a file needs subtitles automatically enabled.
 
 ## Non-default audio track settings
