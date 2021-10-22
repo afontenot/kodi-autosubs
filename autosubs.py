@@ -97,7 +97,14 @@ class KodiManager:
         else:
             audiostream = 0
         self.cur.execute(f"select strAudioLanguage from streamdetails where idFile={fid} and iStreamType=1")
-        return self.cur.fetchall()[audiostream][0]
+        astreams = self.cur.fetchall()
+        if len(astreams) == 0:
+            print("Warning: file does not contain audio tracks or streamdetails missing. Did Kodi run mediainfo?")
+            return None
+        if audiostream + 1 > len(astreams):
+            print("Warning: selected audio stream does not refer to any stream inside the file. Assuming external.")
+            return None
+        return astreams[audiostream][0]
 
     def has_subtitle_settings(self, fid):
         self.cur.execute(f"select SubtitleStream,SubtitlesOn from settings where idFile={fid}")
