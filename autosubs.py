@@ -141,7 +141,7 @@ class KodiManager:
             elif not force:
                 return False
         if not res:
-            insert_settings_row(fid)
+            self.insert_settings_row(fid)
         self.cur.execute(f"update settings set SubtitleStream={tracknum}, SubtitlesOn=1 where idFile={fid}")
         self.conn.commit()
         return True
