@@ -116,8 +116,8 @@ class KodiManager:
         return (res and res[0] != -1 and res[1] == 1)
 
     def has_audio_settings(self, fid):
-        cur.execute(f"select AudioStream from settings where idFile={fid}")
-        res = cur.fetchone()
+        self.cur.execute(f"select AudioStream from settings where idFile={fid}")
+        res = self.cur.fetchone()
         return (res and res[0] != -1)
 
     # just creates a new row in settings with the given id and default settings
