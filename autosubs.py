@@ -323,7 +323,7 @@ class AutosubsProgram:
                 else:
                     print("Skipping.\n")
             else:
-                ("No subtitles were detected in your language!")
+                print("No subtitles were detected in your language!")
         elif (
                 film.preferred_subtrack and
                 film.preferred_subtrack.forced == "Yes"
