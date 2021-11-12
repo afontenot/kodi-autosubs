@@ -98,6 +98,10 @@ class KodiManager:
             audiostream = 0
         self.cur.execute(f"select strAudioLanguage from streamdetails where idFile={fid} and iStreamType=1")
         astreams = self.cur.fetchall()
+        # note: this will probably be an intermittent problem until a release
+        # with https://github.com/xbmc/xbmc/pull/20247 is made
+        # their fix doesn't clean up old code for fetching stream details,
+        # but interested users should probably backport the changes anyway
         if len(astreams) == 0:
             print("Warning: file does not contain audio tracks or streamdetails missing. Did Kodi run mediainfo?")
             return None
