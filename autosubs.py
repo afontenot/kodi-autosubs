@@ -297,7 +297,11 @@ class AutosubsProgram:
                     'stream_identifier': len(film.audiotracks),
                     'codec_id': "srt"
             }
-            film.subtracks.append(SimpleNamespace(**srt))
+            ext_subtrack = SimpleNamespace(**srt)
+            film.subtracks.append(ext_subtrack)
+            # If the film has an external sub track, almost certainly that's
+            # the one that the user prefers, so make it the default choice.
+            film.preferred_subtrack = ext_subtrack
 
         # if the film has subs and the audio language is either not default
         # or unknown, ask the user what to do (or take automatic choice)
