@@ -70,8 +70,8 @@ class FileManager:
     # rather simplistic heuristic to check for an external subtitle (.srt)
     # finds either filename.mkv.srt or filename.srt, good enough for my needs
     def has_external_subtrack(self):
-        longpath = self.fpath + '.srt'
-        shortpath = self.fpath[:-3] + 'srt'
+        longpath = self.fpath + ".srt"
+        shortpath = self.fpath[:-3] + "srt"
         if exists(longpath) or exists(shortpath):
             return True
 
@@ -85,8 +85,8 @@ class KodiManager:
     # allows checking whether a path exists in the Kodi database
     # note: matches only the file name, not the whole path. FIXME?
     def getfid(self, filmpath):
-        fname = filmpath.split('/')[-1]
-        self.cur.execute(f"select idFile from movie where c22 like \"%{fname}\"")
+        fname = filmpath.split("/")[-1]
+        self.cur.execute(f'select idFile from movie where c22 like "%{fname}"')
         res = self.cur.fetchone()
         if res is None:
             return None
@@ -99,43 +99,69 @@ class KodiManager:
             audiostream = audiostream[0]
         else:
             audiostream = 0
-        self.cur.execute(f"select strAudioLanguage from streamdetails where idFile={fid} and iStreamType=1")
+        self.cur.execute(
+            f"select strAudioLanguage from streamdetails where idFile={fid} and iStreamType=1"
+        )
         astreams = self.cur.fetchall()
         # note: this will probably be an intermittent problem until a release
         # with https://github.com/xbmc/xbmc/pull/20247 is made
         # their fix doesn't clean up old code for fetching stream details,
         # but interested users should probably backport the changes anyway
         if len(astreams) == 0:
-            print("Warning: file does not contain audio tracks or streamdetails missing. Did Kodi run mediainfo?")
+            print(
+                "Warning: file does not contain audio tracks or streamdetails missing. Did Kodi run mediainfo?"
+            )
             return None
         if audiostream + 1 > len(astreams):
-            print("Warning: selected audio stream does not refer to any stream inside the file. Assuming external.")
+            print(
+                "Warning: selected audio stream does not refer to any stream inside the file. Assuming external."
+            )
             return None
         return astreams[audiostream][0]
 
     def has_subtitle_settings(self, fid):
-        self.cur.execute(f"select SubtitleStream,SubtitlesOn from settings where idFile={fid}")
+        self.cur.execute(
+            f"select SubtitleStream,SubtitlesOn from settings where idFile={fid}"
+        )
         res = self.cur.fetchone()
-        return (res and res[0] != -1 and res[1] == 1)
+        return res and res[0] != -1 and res[1] == 1
 
     def has_audio_settings(self, fid):
         self.cur.execute(f"select AudioStream from settings where idFile={fid}")
         res = self.cur.fetchone()
-        return (res and res[0] != -1)
+        return res and res[0] != -1
 
     # just creates a new row in settings with the given id and default settings
     def insert_settings_row(self, rowid):
         default_settings = {
-                'Deinterlace': 1, 'ViewMode': 0, 'ZoomAmount': 1.0,
-                'PixelRatio': 1.0, 'VerticalShift': 0.0, 'AudioStream': -1,
-                'SubtitleStream': -1, 'SubtitleDelay': 0.0, 'SubtitlesOn': 1,
-                'Brightness': 50.0, 'Contrast': 50.0, 'Gamma': 20.0,
-                'VolumeAmplification': 0.0, 'AudioDelay': 0.0,
-                'ResumeTime': 0, 'Sharpness': 0.0, 'NoiseReduction': 0.0,
-                'NonLinStretch': 0, 'PostProcess': 0, 'ScalingMethod': 1,
-                'DeinterlaceMode': 'NULL', 'StereoMode': 0, 'StereoInvert': 0,
-                'VideoStream': -1, 'TonemapMethod': 1, 'TonemapParam': 1.0,
-                'Orientation': 0, 'CenterMixLevel': 0
+            "Deinterlace": 1,
+            "ViewMode": 0,
+            "ZoomAmount": 1.0,
+            "PixelRatio": 1.0,
+            "VerticalShift": 0.0,
+            "AudioStream": -1,
+            "SubtitleStream": -1,
+            "SubtitleDelay": 0.0,
+            "SubtitlesOn": 1,
+            "Brightness": 50.0,
+            "Contrast": 50.0,
+            "Gamma": 20.0,
+            "VolumeAmplification": 0.0,
+            "AudioDelay": 0.0,
+            "ResumeTime": 0,
+            "Sharpness": 0.0,
+            "NoiseReduction": 0.0,
+            "NonLinStretch": 0,
+            "PostProcess": 0,
+            "ScalingMethod": 1,
+            "DeinterlaceMode": "NULL",
+            "StereoMode": 0,
+            "StereoInvert": 0,
+            "VideoStream": -1,
+            "TonemapMethod": 1,
+            "TonemapParam": 1.0,
+            "Orientation": 0,
+            "CenterMixLevel": 0,
         }
         self.cur.execute(f"insert into settings (idFile) values ({rowid})")
         for name, val in default_settings.items():
@@ -149,17 +175,20 @@ class KodiManager:
         # sub is what the user selected, else bail out unless forced
         if res and res[0] != -1:
             if res[0] == tracknum:
-                self.cur.execute(f"update settings set SubtitlesOn=1 where idFile={fid}")
+                self.cur.execute(
+                    f"update settings set SubtitlesOn=1 where idFile={fid}"
+                )
                 self.conn.commit()
                 return True
             elif not force:
                 return False
         if not res:
             self.insert_settings_row(fid)
-        self.cur.execute(f"update settings set SubtitleStream={tracknum}, SubtitlesOn=1 where idFile={fid}")
+        self.cur.execute(
+            f"update settings set SubtitleStream={tracknum}, SubtitlesOn=1 where idFile={fid}"
+        )
         self.conn.commit()
         return True
-
 
     def set_atrack(self, fid, tracknum, force=False):
         # if a default stream is already set, bail unless forced
@@ -172,7 +201,9 @@ class KodiManager:
                 return False
         if not res:
             insert_settings_row(fid)
-        self.cur.execute(f"update settings set AudioStream={tracknum} where idFile={fid}")
+        self.cur.execute(
+            f"update settings set AudioStream={tracknum} where idFile={fid}"
+        )
         self.conn.commit()
         return True
 
@@ -182,78 +213,85 @@ class AutosubsProgram:
     def __init__(self):
         self.db = None
         self.buffereddata = ""
+
     def parseargs(self):
         parser = argparse.ArgumentParser(
-                description="Set subtitle and audio track setings in Kodi automatically.",
-                epilog="""Leaving the three speed-up modes disabled is
+            description="Set subtitle and audio track setings in Kodi automatically.",
+            epilog="""Leaving the three speed-up modes disabled is
                 recommended on your first run of the script. You can enable them
                 (or just use --quiet) after that, then leave them off for
-                specific files."""
+                specific files.""",
         )
         parser.add_argument(
-                '-u', '--updateonly',
-                help="""Skip updating files that already have subtitles set, or
+            "-u",
+            "--updateonly",
+            help="""Skip updating files that already have subtitles set, or
                 updating audio tracks on files that have audio tracks set.""",
-                action='store_true'
+            action="store_true",
         )
         parser.add_argument(
-                '-f', '--fastmode',
-                help="""Skip files that have your chosen language as the default 
+            "-f",
+            "--fastmode",
+            help="""Skip files that have your chosen language as the default 
                 audio track in the Kodi database. Otherwise, the script will 
                 attempt to verify the language with mediainfo, set forced subs, 
                 and so on.""",
-                action='store_true'
+            action="store_true",
         )
         parser.add_argument(
-                '-q', '--quiet',
-                help="""Does the default option without prompting. Implies
+            "-q",
+            "--quiet",
+            help="""Does the default option without prompting. Implies
                 --updateonly and --fastmode for maximum safety. Incompatible
                 with --audio. Intended for automated use, for interactive try
                 --updateonly --fastmode.""",
-                action='store_true'
+            action="store_true",
         )
         parser.add_argument(
-                '-w', '--watch',
-                help="""Automatically run the script (in safe / quiet mode)
+            "-w",
+            "--watch",
+            help="""Automatically run the script (in safe / quiet mode)
                 whenever Kodi updates its video library. Requires an IP
                 address. Local TCP access must be enabled.""",
-                metavar="127.0.0.1:9090",
+            metavar="127.0.0.1:9090",
         )
         parser.add_argument(
-                '-a', '--audio',
-                help="""Enable the audio stream adjustment mode. Detects when
+            "-a",
+            "--audio",
+            help="""Enable the audio stream adjustment mode. Detects when
                 there might be an alternative audio stream that should be the 
                 default, so that you can easily switch to it. Attempts to use
                 heuristics to avoid commentary tracks. Intended to make it
                 easier to find and play original mono audio tracks, which are
                 sometimes included as secondary tracks in the file.""",
-                action='store_true'
+            action="store_true",
         )
         parser.add_argument(
-                '-l', '--language',
-                help="""Set your native language. Only files that Kodi will play
+            "-l",
+            "--language",
+            help="""Set your native language. Only files that Kodi will play
                 in a different language than the one you choose will have their
                 subtitles activated or deactivated by this script. The language
                 will also be used to find the correct subtitles automatically.
                 You can use the full language name or a two-letter or
                 three-letter ISO code. Default: English (en)""",
-                default="English"
+            default="English",
         )
         parser.add_argument(
-                'database',
-                help="location of the Kodi database (e.g. MyVideos116.db)"
+            "database", help="location of the Kodi database (e.g. MyVideos116.db)"
         )
         parser.add_argument(
-                'files',
-                help="""list of media files to scan (e.g. *.mkv); note that the
+            "files",
+            help="""list of media files to scan (e.g. *.mkv); note that the
                 files need to be in Kodi's database already for this to work""",
-                nargs='+')
+            nargs="+",
+        )
 
         self.args = parser.parse_args()
         self.lang = (
-                languages.get(name=self.args.language) or
-                languages.get(alpha_2=self.args.language) or
-                languages.get(alpha_3=self.args.language)
+            languages.get(name=self.args.language)
+            or languages.get(alpha_2=self.args.language)
+            or languages.get(alpha_3=self.args.language)
         )
 
         if self.args.watch:
@@ -270,13 +308,19 @@ class AutosubsProgram:
         for strack in film.subtracks:
             # print the default sub track with brackets for emphasis
             if strack == film.preferred_subtrack and film.default_audiotrack.language:
-                print(f"{strack.stream_identifier}: [{strack.language} | {strack.title} | {strack.codec_id} | forced: {strack.forced}]")
+                print(
+                    f"{strack.stream_identifier}: [{strack.language} | {strack.title} | {strack.codec_id} | forced: {strack.forced}]"
+                )
             else:
-                print(f"{strack.stream_identifier}:  {strack.language} | {strack.title} | {strack.codec_id} | forced: {strack.forced}")
+                print(
+                    f"{strack.stream_identifier}:  {strack.language} | {strack.title} | {strack.codec_id} | forced: {strack.forced}"
+                )
         inp = ""
-        if not self.args.quiet: # don't prompt if quiet mode
+        if not self.args.quiet:  # don't prompt if quiet mode
             if film.default_audiotrack.language:
-                inp = input("\nEnter track number to use, 'n' to cancel, enter to accept: ")
+                inp = input(
+                    "\nEnter track number to use, 'n' to cancel, enter to accept: "
+                )
             else:
                 inp = input("\nEnter track number to use, enter to cancel: ")
         if film.default_audiotrack.language and inp == "":
@@ -306,12 +350,12 @@ class AutosubsProgram:
             # We set stream_identifier to 1 + the maximum index of the subs list
             # because Kodi uses this number internally for external subs.
             srt = {
-                    'title': "EXTERNAL",
-                    'forced': "No",
-                    'language': self.lang.alpha_2,
-                    'default': "No",
-                    'stream_identifier': len(film.audiotracks),
-                    'codec_id': "srt"
+                "title": "EXTERNAL",
+                "forced": "No",
+                "language": self.lang.alpha_2,
+                "default": "No",
+                "stream_identifier": len(film.audiotracks),
+                "codec_id": "srt",
             }
             ext_subtrack = SimpleNamespace(**srt)
             film.subtracks.append(ext_subtrack)
@@ -321,11 +365,9 @@ class AutosubsProgram:
 
         # if the film has subs and the audio language is either not default
         # or unknown, ask the user what to do (or take automatic choice)
-        if (
-                film.subtracks and (
-                    not film.default_audiotrack
-                    or film.default_audiotrack.language != self.lang.alpha_2
-                )
+        if film.subtracks and (
+            not film.default_audiotrack
+            or film.default_audiotrack.language != self.lang.alpha_2
         ):
             if film.preferred_subtrack:
                 print("\nSetting sub track on", film.fpath, "\n")
@@ -344,17 +386,16 @@ class AutosubsProgram:
                     print("Skipping.\n")
             else:
                 print("No subtitles were detected in your language!")
-        elif (
-                film.preferred_subtrack and
-                film.preferred_subtrack.forced == "Yes"
-        ):
+        elif film.preferred_subtrack and film.preferred_subtrack.forced == "Yes":
             print("Note: film has a forced track.")
 
     # the central method for finding audio tracks and updating Kodi's settings
     def update_audio(self, film, fid):
         # check if file mediainfo indicates non-identifiable audio tracks
         if film.extra_audiotracks:
-            print("\nSome additional tracks could not be positively identified as commentaries:\n")
+            print(
+                "\nSome additional tracks could not be positively identified as commentaries:\n"
+            )
             atrack_choice = self.choose_atrack(film)
             if not atrack_choice is None:
                 result = self.db.set_atrack(fid, atrack_choice)
@@ -365,7 +406,6 @@ class AutosubsProgram:
                         print("Skipping.\n")
                     else:
                         self.db.set_atrack(fid, atrack_choice, True)
-
 
     def _run(self, files):
         self.db = KodiManager(self.args.database)
@@ -382,11 +422,11 @@ class AutosubsProgram:
             # check whether flags allow updating subtitles for this file
             can_update_subtitles = True
             if (
-                    self.args.fastmode and
-                    self.db.get_default_audio_lang(fid) == self.lang.alpha_3
+                self.args.fastmode
+                and self.db.get_default_audio_lang(fid) == self.lang.alpha_3
             ):
                 can_update_subtitles = False
-            if (self.args.updateonly and self.db.has_subtitle_settings(fid)):
+            if self.args.updateonly and self.db.has_subtitle_settings(fid):
                 can_update_subtitles = False
 
             # then perform the update
@@ -397,7 +437,7 @@ class AutosubsProgram:
 
             # check whether flags allow updating audio track for this file
             can_update_audio = self.args.audio
-            if (self.args.updateonly and self.db.has_audio_settings):
+            if self.args.updateonly and self.db.has_audio_settings:
                 can_update_audio = False
 
             # then perform the update
@@ -409,7 +449,6 @@ class AutosubsProgram:
         # close database connection
         self.db.conn.close()
         self.db = None
-
 
     def _listen(self, sock):
         try:
@@ -423,11 +462,11 @@ class AutosubsProgram:
                     elif c == "}":
                         bracketdepth -= 1
                     if bracketdepth == 0:
-                        self.buffereddata = self.buffereddata[i+1:]
+                        self.buffereddata = self.buffereddata[i + 1 :]
                         return buffer
                     elif bracketdepth < 0:
                         raise ValueError("Invalid JSON:", buffer)
-                
+
                 self.buffereddata = sock.recv(4096).decode("utf-8")
 
         except KeyboardInterrupt:
@@ -435,7 +474,6 @@ class AutosubsProgram:
             if self.db:
                 self.db.conn.close()
             sys.exit()
-
 
     def live(self):
         ip, port = self.args.watch.split(":")
@@ -478,7 +516,6 @@ class AutosubsProgram:
                         break
                 if moviepaths:
                     self._run(moviepaths)
-
 
     # main function when run as a program
     def run(self):
