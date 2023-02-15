@@ -216,55 +216,13 @@ class AutosubsProgram:
 
     def parseargs(self):
         parser = argparse.ArgumentParser(
-            description="Set subtitle and audio track setings in Kodi automatically.",
-            epilog="""Leaving the three speed-up modes disabled is
-                recommended on your first run of the script. You can enable them
-                (or just use --quiet) after that, then leave them off for
-                specific files.""",
+            description="Set subtitle and audio track setings in Kodi automatically."
         )
         parser.add_argument(
-            "-u",
-            "--updateonly",
-            help="""Skip updating files that already have subtitles set, or
-                updating audio tracks on files that have audio tracks set.""",
-            action="store_true",
-        )
-        parser.add_argument(
-            "-f",
-            "--fastmode",
-            help="""Skip files that have your chosen language as the default 
-                audio track in the Kodi database. Otherwise, the script will 
-                attempt to verify the language with mediainfo, set forced subs, 
-                and so on.""",
-            action="store_true",
-        )
-        parser.add_argument(
-            "-q",
-            "--quiet",
-            help="""Does the default option without prompting. Implies
-                --updateonly and --fastmode for maximum safety. Incompatible
-                with --audio. Intended for automated use, for interactive try
-                --updateonly --fastmode.""",
-            action="store_true",
-        )
-        parser.add_argument(
-            "-w",
-            "--watch",
-            help="""Automatically run the script (in safe / quiet mode)
-                whenever Kodi updates its video library. Requires an IP
-                address. Local TCP access must be enabled.""",
-            metavar="127.0.0.1:9090",
-        )
-        parser.add_argument(
-            "-a",
-            "--audio",
-            help="""Enable the audio stream adjustment mode. Detects when
-                there might be an alternative audio stream that should be the 
-                default, so that you can easily switch to it. Attempts to use
-                heuristics to avoid commentary tracks. Intended to make it
-                easier to find and play original mono audio tracks, which are
-                sometimes included as secondary tracks in the file.""",
-            action="store_true",
+            "-d",
+            "--database",
+            help="location of the Kodi database (e.g. MyVideos116.db)",
+            required=True,
         )
         parser.add_argument(
             "-l",
@@ -277,10 +235,74 @@ class AutosubsProgram:
                 three-letter ISO code. Default: English (en)""",
             default="English",
         )
-        parser.add_argument(
-            "database", help="location of the Kodi database (e.g. MyVideos116.db)"
+        subp = parser.add_subparsers(
+            title="Mode",
+            help="""Set the program mode to use.""",
+            required=True,
+            dest="command",
         )
-        parser.add_argument(
+
+        # live mode: use 'quiet' settings to adjust newly added files
+        watch_parser = subp.add_parser(
+            "watch",
+            help="""Automatically run the script (in safe / quiet mode)
+                whenever Kodi updates its video library. Local TCP access
+                must be enabled.""",
+            )
+        watch_parser.add_argument(
+            "ip_port",
+            metavar="ip:port",
+            default="127.0.0.1:9090",
+            nargs="?",
+            help="ip:port to connect to Kodi. Default: 127.0.0.1:9090",
+        )
+
+        # normal mode: scan specified files
+        scan_parser = subp.add_parser(
+            "scan",
+            help="""Scan and update settings for specified files""",
+            epilog="""Leaving the three speed-up modes disabled is
+                recommended on your first run of the script. You can enable them
+                (or just use --quiet) after that, then leave them off for
+                specific files.""",
+        )
+        scan_parser.add_argument(
+            "-u",
+            "--updateonly",
+            help="""Skip updating files that already have subtitles set, or
+                updating audio tracks on files that have audio tracks set.""",
+            action="store_true",
+        )
+        scan_parser.add_argument(
+            "-f",
+            "--fastmode",
+            help="""Skip files that have your chosen language as the default 
+                audio track in the Kodi database. Otherwise, the script will 
+                attempt to verify the language with mediainfo, set forced subs, 
+                and so on.""",
+            action="store_true",
+        )
+        scan_parser.add_argument(
+            "-q",
+            "--quiet",
+            help="""Does the default option without prompting. Implies
+                --updateonly and --fastmode for maximum safety. Incompatible
+                with --audio. Intended for automated use, for interactive try
+                --updateonly --fastmode.""",
+            action="store_true",
+        )
+        scan_parser.add_argument(
+            "-a",
+            "--audio",
+            help="""Enable the audio stream adjustment mode. Detects when
+                there might be an alternative audio stream that should be the 
+                default, so that you can easily switch to it. Attempts to use
+                heuristics to avoid commentary tracks. Intended to make it
+                easier to find and play original mono audio tracks, which are
+                sometimes included as secondary tracks in the file.""",
+            action="store_true",
+        )
+        scan_parser.add_argument(
             "files",
             help="""list of media files to scan (e.g. *.mkv); note that the
                 files need to be in Kodi's database already for this to work""",
@@ -294,7 +316,7 @@ class AutosubsProgram:
             or languages.get(alpha_3=self.args.language)
         )
 
-        if self.args.watch:
+        if self.args.command == "watch":
             self.args.quiet = True
 
         if self.args.quiet:
@@ -450,22 +472,40 @@ class AutosubsProgram:
         self.db.conn.close()
         self.db = None
 
-    def _listen(self, sock):
+    def _listen_json(self, sock):
         try:
-            buffer = ""
+            buff = ""
             bracketdepth = 0
+            inquote = False
+            inescape = False
             while True:
                 for i, c in enumerate(self.buffereddata):
-                    buffer += c
-                    if c == "{":
+                    buff += c
+                    if inescape:
+                        inescape = False
+                        continue
+                    elif inquote:
+                        if c == '"':
+                            inquote = False
+                    elif (c == "{" or c == "[") and not inquote:
                         bracketdepth += 1
-                    elif c == "}":
+                    elif c == "}" or c == "]":
                         bracketdepth -= 1
+                    elif c == "\\":
+                        inescape = True
+                    elif c == '"':
+                        inquote = True
+
                     if bracketdepth == 0:
                         self.buffereddata = self.buffereddata[i + 1 :]
-                        return buffer
+                        try:
+                            return json.loads(buff)
+                        except json.JSONDecodeError:
+                            print("Invalid JSON:", buff)
+                            return dict()
+
                     elif bracketdepth < 0:
-                        raise ValueError("Invalid JSON:", buffer)
+                        raise ValueError("Invalid JSON:", buff)
 
                 self.buffereddata = sock.recv(4096).decode("utf-8")
 
@@ -476,21 +516,20 @@ class AutosubsProgram:
             sys.exit()
 
     def live(self):
-        ip, port = self.args.watch.split(":")
+        ip, port = self.args.ip_port.split(":")
         port = int(port)
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.connect((ip, port))
         movies = set()
         while True:
-            data = self._listen(sock)
-            result = json.loads(data)
-            print("<", result)
-            if result.get("method") == "VideoLibrary.OnUpdate":
-                if result["params"]["data"].get("added"):
-                    if result["params"]["data"]["item"]["type"] == "movie":
-                        movieid = result["params"]["data"]["item"]["id"]
+            data = self._listen_json(sock)
+            print("<", data)
+            if data.get("method") == "VideoLibrary.OnUpdate":
+                if data["params"]["data"].get("added"):
+                    if data["params"]["data"]["item"]["type"] == "movie":
+                        movieid = data["params"]["data"]["item"]["id"]
                         movies.add(movieid)
-            elif result.get("method") == "VideoLibrary.OnScanFinished":
+            elif data.get("method") == "VideoLibrary.OnScanFinished":
                 moviepaths = []
                 for movieid in movies:
                     cmd = {
@@ -502,25 +541,26 @@ class AutosubsProgram:
                         },
                         "id": "autosubs-getmoviedetails",
                     }
-                    print(">", json.dumps(cmd))
-                    sock.send(json.dumps(cmd).encode("utf-8"))
+                    cmd = json.dumps(cmd)
+                    print(">", cmd)
+                    sock.send(cmd.encode("utf-8"))
                     while True:
-                        data = self._listen(sock)
-                        result = json.loads(data)
-                        print("<", result)
-                        if not result.get("id") == "autosubs-getmoviedetails":
+                        data = self._listen_json(sock)
+                        print("<", data)
+                        if not data.get("id") == "autosubs-getmoviedetails":
                             continue
-                        if "result" in result:
-                            path = result["result"]["moviedetails"]["file"]
+                        if "result" in data:
+                            path = data["result"]["moviedetails"]["file"]
                             moviepaths.append(path)
                         break
                 if moviepaths:
                     self._run(moviepaths)
+                movies.clear()
 
     # main function when run as a program
     def run(self):
         self.parseargs()
-        if self.args.watch:
+        if self.args.command == "watch":
             self.live()
         else:
             self._run(self.args.files)
