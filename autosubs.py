@@ -9,6 +9,11 @@ from types import SimpleNamespace
 from pymediainfo import MediaInfo
 from pycountry import languages
 
+# convert a user supplied language code to a pycountry language
+def argparse_langcode(s: str):
+    return languages.get(alpha_2=s) or languages.get(alpha_3=s) or languages.get(name=s)
+
+
 # Handles everything to do with media files and mediainfo
 class FileManager:
     def __init__(self, fpath, defaultlang_aa):
@@ -234,6 +239,7 @@ class AutosubsProgram:
                 You can use the full language name or a two-letter or
                 three-letter ISO code. Default: English (en)""",
             default="English",
+            type=argparse_langcode,
         )
         subp = parser.add_subparsers(
             title="Mode",
@@ -248,7 +254,7 @@ class AutosubsProgram:
             help="""Automatically run the script (in safe / quiet mode)
                 whenever Kodi updates its video library. Local TCP access
                 must be enabled.""",
-            )
+        )
         watch_parser.add_argument(
             "ip_port",
             metavar="ip:port",
@@ -310,11 +316,6 @@ class AutosubsProgram:
         )
 
         self.args = parser.parse_args()
-        self.lang = (
-            languages.get(name=self.args.language)
-            or languages.get(alpha_2=self.args.language)
-            or languages.get(alpha_3=self.args.language)
-        )
 
         if self.args.command == "watch":
             self.args.quiet = True
@@ -374,7 +375,7 @@ class AutosubsProgram:
             srt = {
                 "title": "EXTERNAL",
                 "forced": "No",
-                "language": self.lang.alpha_2,
+                "language": self.args.language.alpha_2,
                 "default": "No",
                 "stream_identifier": len(film.audiotracks),
                 "codec_id": "srt",
@@ -389,7 +390,7 @@ class AutosubsProgram:
         # or unknown, ask the user what to do (or take automatic choice)
         if film.subtracks and (
             not film.default_audiotrack
-            or film.default_audiotrack.language != self.lang.alpha_2
+            or film.default_audiotrack.language != self.args.language.alpha_2
         ):
             if film.preferred_subtrack:
                 print("\nSetting sub track on", film.fpath, "\n")
@@ -445,7 +446,7 @@ class AutosubsProgram:
             can_update_subtitles = True
             if (
                 self.args.fastmode
-                and self.db.get_default_audio_lang(fid) == self.lang.alpha_3
+                and self.db.get_default_audio_lang(fid) == self.args.language.alpha_3
             ):
                 can_update_subtitles = False
             if self.args.updateonly and self.db.has_subtitle_settings(fid):
@@ -454,7 +455,7 @@ class AutosubsProgram:
             # then perform the update
             film = None
             if can_update_subtitles:
-                film = FileManager(fpath, self.lang.alpha_2)
+                film = FileManager(fpath, self.args.language.alpha_2)
                 self.update_subtitles(film, fid)
 
             # check whether flags allow updating audio track for this file
@@ -465,7 +466,7 @@ class AutosubsProgram:
             # then perform the update
             if can_update_audio:
                 if not film:
-                    film = FileManager(fpath, self.lang.alpha_2)
+                    film = FileManager(fpath, self.args.language.alpha_2)
                 self.update_audio(film, fid)
 
         # close database connection
@@ -501,8 +502,7 @@ class AutosubsProgram:
                         try:
                             return json.loads(buff)
                         except json.JSONDecodeError:
-                            print("Invalid JSON:", buff)
-                            return dict()
+                            raise ValueError("Invalid JSON:", buff)
 
                     elif bracketdepth < 0:
                         raise ValueError("Invalid JSON:", buff)
