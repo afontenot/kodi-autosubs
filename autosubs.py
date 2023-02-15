@@ -1,5 +1,8 @@
 import argparse
+import json
+import socket
 import sqlite3
+import sys
 from os.path import exists
 from types import SimpleNamespace
 
@@ -176,6 +179,9 @@ class KodiManager:
 
 # The base class for the program. See run() for default execution.
 class AutosubsProgram:
+    def __init__(self):
+        self.db = None
+        self.buffereddata = ""
     def parseargs(self):
         parser = argparse.ArgumentParser(
                 description="Set subtitle and audio track setings in Kodi automatically.",
@@ -205,6 +211,13 @@ class AutosubsProgram:
                 with --audio. Intended for automated use, for interactive try
                 --updateonly --fastmode.""",
                 action='store_true'
+        )
+        parser.add_argument(
+                '-w', '--watch',
+                help="""Automatically run the script (in safe / quiet mode)
+                whenever Kodi updates its video library. Requires an IP
+                address. Local TCP access must be enabled.""",
+                metavar="127.0.0.1:9090",
         )
         parser.add_argument(
                 '-a', '--audio',
@@ -242,6 +255,9 @@ class AutosubsProgram:
                 languages.get(alpha_2=self.args.language) or
                 languages.get(alpha_3=self.args.language)
         )
+
+        if self.args.watch:
+            self.args.quiet = True
 
         if self.args.quiet:
             self.args.updateonly = True
@@ -350,13 +366,12 @@ class AutosubsProgram:
                     else:
                         self.db.set_atrack(fid, atrack_choice, True)
 
-    # main function when run as a program
-    def run(self):
-        self.parseargs()
+
+    def _run(self, files):
         self.db = KodiManager(self.args.database)
 
-        for filecount, fpath in enumerate(self.args.files):
-            print(f"[{filecount+1}/{len(self.args.files)}]", fpath)
+        for filecount, fpath in enumerate(files):
+            print(f"[{filecount+1}/{len(files)}]", fpath)
 
             # make sure Kodi already knows about the file
             fid = self.db.getfid(fpath)
@@ -393,6 +408,86 @@ class AutosubsProgram:
 
         # close database connection
         self.db.conn.close()
+        self.db = None
+
+
+    def _listen(self, sock):
+        try:
+            buffer = ""
+            bracketdepth = 0
+            while True:
+                for i, c in enumerate(self.buffereddata):
+                    buffer += c
+                    if c == "{":
+                        bracketdepth += 1
+                    elif c == "}":
+                        bracketdepth -= 1
+                    if bracketdepth == 0:
+                        self.buffereddata = self.buffereddata[i+1:]
+                        return buffer
+                    elif bracketdepth < 0:
+                        raise ValueError("Invalid JSON:", buffer)
+                
+                self.buffereddata = sock.recv(4096).decode("utf-8")
+
+        except KeyboardInterrupt:
+            sock.close()
+            if self.db:
+                self.db.conn.close()
+            sys.exit()
+
+
+    def live(self):
+        ip, port = self.args.watch.split(":")
+        port = int(port)
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.connect((ip, port))
+        movies = set()
+        while True:
+            data = self._listen(sock)
+            result = json.loads(data)
+            print("<", result)
+            if result.get("method") == "VideoLibrary.OnUpdate":
+                if result["params"]["data"].get("added"):
+                    if result["params"]["data"]["item"]["type"] == "movie":
+                        movieid = result["params"]["data"]["item"]["id"]
+                        movies.add(movieid)
+            elif result.get("method") == "VideoLibrary.OnScanFinished":
+                moviepaths = []
+                for movieid in movies:
+                    cmd = {
+                        "jsonrpc": "2.0",
+                        "method": "VideoLibrary.GetMovieDetails",
+                        "params": {
+                            "movieid": movieid,
+                            "properties": ["file"],
+                        },
+                        "id": "autosubs-getmoviedetails",
+                    }
+                    print(">", json.dumps(cmd))
+                    sock.send(json.dumps(cmd).encode("utf-8"))
+                    while True:
+                        data = self._listen(sock)
+                        result = json.loads(data)
+                        print("<", result)
+                        if not result.get("id") == "autosubs-getmoviedetails":
+                            continue
+                        if "result" in result:
+                            path = result["result"]["moviedetails"]["file"]
+                            moviepaths.append(path)
+                        break
+                if moviepaths:
+                    self._run(moviepaths)
+
+
+    # main function when run as a program
+    def run(self):
+        self.parseargs()
+        if self.args.watch:
+            self.live()
+        else:
+            self._run(self.args.files)
+
 
 if __name__ == "__main__":
     asp = AutosubsProgram()
