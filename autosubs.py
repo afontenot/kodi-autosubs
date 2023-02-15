@@ -1,6 +1,6 @@
 import argparse
 import json
-import socket
+import websocket
 import sqlite3
 import sys
 from os.path import exists
@@ -8,6 +8,7 @@ from types import SimpleNamespace
 
 from pymediainfo import MediaInfo
 from pycountry import languages
+
 
 # convert a user supplied language code to a pycountry language
 def argparse_langcode(s: str):
@@ -57,7 +58,7 @@ class FileManager:
             return None
         # attempt removing SDH tracks
         if len(localtracks) > 1:
-            clean = list(filter(lambda x: not "SDH" in (x.title or ""), localtracks))
+            clean = list(filter(lambda x: "SDH" not in (x.title or ""), localtracks))
             if clean:
                 localtracks = clean
         marked_forced = list(filter(lambda x: x.forced == "Yes", localtracks))
@@ -205,7 +206,7 @@ class KodiManager:
             elif not force:
                 return False
         if not res:
-            insert_settings_row(fid)
+            self.insert_settings_row(fid)
         self.cur.execute(
             f"update settings set AudioStream={tracknum} where idFile={fid}"
         )
@@ -256,11 +257,11 @@ class AutosubsProgram:
                 must be enabled.""",
         )
         watch_parser.add_argument(
-            "ip_port",
-            metavar="ip:port",
-            default="127.0.0.1:9090",
+            "ws",
+            metavar="ws://host:port",
+            default="ws://localhost:9090",
             nargs="?",
-            help="ip:port to connect to Kodi. Default: 127.0.0.1:9090",
+            help="Websocket address to connect to Kodi. Default: ws:localhost:9090",
         )
 
         # normal mode: scan specified files
@@ -282,9 +283,9 @@ class AutosubsProgram:
         scan_parser.add_argument(
             "-f",
             "--fastmode",
-            help="""Skip files that have your chosen language as the default 
-                audio track in the Kodi database. Otherwise, the script will 
-                attempt to verify the language with mediainfo, set forced subs, 
+            help="""Skip files that have your chosen language as the default
+                audio track in the Kodi database. Otherwise, the script will
+                attempt to verify the language with mediainfo, set forced subs,
                 and so on.""",
             action="store_true",
         )
@@ -301,7 +302,7 @@ class AutosubsProgram:
             "-a",
             "--audio",
             help="""Enable the audio stream adjustment mode. Detects when
-                there might be an alternative audio stream that should be the 
+                there might be an alternative audio stream that should be the
                 default, so that you can easily switch to it. Attempts to use
                 heuristics to avoid commentary tracks. Intended to make it
                 easier to find and play original mono audio tracks, which are
@@ -395,7 +396,7 @@ class AutosubsProgram:
             if film.preferred_subtrack:
                 print("\nSetting sub track on", film.fpath, "\n")
                 subtrack_choice = self.choose_subtrack(film)
-                if not subtrack_choice is None:
+                if subtrack_choice is not None:
                     result = self.db.set_subtrack(fid, subtrack_choice)
                     # don't overwrite when using quiet mode, for safety
                     if not result and not self.args.quiet:
@@ -420,7 +421,7 @@ class AutosubsProgram:
                 "\nSome additional tracks could not be positively identified as commentaries:\n"
             )
             atrack_choice = self.choose_atrack(film)
-            if not atrack_choice is None:
+            if atrack_choice is not None:
                 result = self.db.set_atrack(fid, atrack_choice)
                 if not result:
                     print("Different audio stream previously set.")
@@ -473,42 +474,17 @@ class AutosubsProgram:
         self.db.conn.close()
         self.db = None
 
+    # receive json messages from websocket
+    # note: this blocks, but that's appropriate for this app since we want
+    # to wait indefinitely for messages from Kodi. Also, Kodi doesn't support
+    # websocket pings (it actually refuses to reply, which violates spec) so
+    # implementing any sort of keepalive feature would be counterproductive.
     def _listen_json(self, sock):
         try:
-            buff = ""
-            bracketdepth = 0
-            inquote = False
-            inescape = False
-            while True:
-                for i, c in enumerate(self.buffereddata):
-                    buff += c
-                    if inescape:
-                        inescape = False
-                        continue
-                    elif inquote:
-                        if c == '"':
-                            inquote = False
-                    elif (c == "{" or c == "[") and not inquote:
-                        bracketdepth += 1
-                    elif c == "}" or c == "]":
-                        bracketdepth -= 1
-                    elif c == "\\":
-                        inescape = True
-                    elif c == '"':
-                        inquote = True
-
-                    if bracketdepth == 0:
-                        self.buffereddata = self.buffereddata[i + 1 :]
-                        try:
-                            return json.loads(buff)
-                        except json.JSONDecodeError:
-                            raise ValueError("Invalid JSON:", buff)
-
-                    elif bracketdepth < 0:
-                        raise ValueError("Invalid JSON:", buff)
-
-                self.buffereddata = sock.recv(4096).decode("utf-8")
-
+            data = sock.recv()
+            return json.loads(data)
+        except json.JSONDecodeError:
+            raise ValueError("Invalid JSON:", data)
         except KeyboardInterrupt:
             sock.close()
             if self.db:
@@ -516,10 +492,8 @@ class AutosubsProgram:
             sys.exit()
 
     def live(self):
-        ip, port = self.args.ip_port.split(":")
-        port = int(port)
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.connect((ip, port))
+        sock = websocket.WebSocket()
+        sock.connect(self.args.ws)
         movies = set()
         while True:
             data = self._listen_json(sock)
@@ -543,7 +517,7 @@ class AutosubsProgram:
                     }
                     cmd = json.dumps(cmd)
                     print(">", cmd)
-                    sock.send(cmd.encode("utf-8"))
+                    sock.send(cmd)
                     while True:
                         data = self._listen_json(sock)
                         print("<", data)
